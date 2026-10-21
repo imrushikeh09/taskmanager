@@ -41,7 +41,7 @@ urlpatterns = [
     # v1 Domain Endpoints
     path('api/v1/projects/', include('projects.urls')),
     path('api/v1/tasks/', include('tasks.urls')),
-    path('api/v1/notifications/', include('tasks.notification_urls')),
+    path('api/v1/notifications/', include('notifications.urls')),
 ]
 
 

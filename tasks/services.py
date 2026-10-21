@@ -51,7 +51,7 @@ class TaskService:
 
         # Asynchronous In-App Notification (Day 18)
         if assignee:
-            from tasks.tasks import send_task_assigned_notification
+            from notifications.tasks import send_task_assigned_notification
             transaction.on_commit(lambda: send_task_assigned_notification.delay(task.id))
 
         return task
@@ -74,7 +74,7 @@ class TaskService:
         invalidate_performance_cache(task.project_id)
 
         if old_status != new_status:
-            from tasks.tasks import send_task_status_changed_notification
+            from notifications.tasks import send_task_status_changed_notification
             transaction.on_commit(lambda: send_task_status_changed_notification.delay(task.id, old_status, new_status))
 
         return task
@@ -97,7 +97,7 @@ class TaskService:
         invalidate_performance_cache(task.project_id)
 
         if assignee and assignee.id != old_assignee_id:
-            from tasks.tasks import send_task_assigned_notification
+            from notifications.tasks import send_task_assigned_notification
             transaction.on_commit(lambda: send_task_assigned_notification.delay(task.id))
 
         return task

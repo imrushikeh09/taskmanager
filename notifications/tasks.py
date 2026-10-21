@@ -1,7 +1,8 @@
 import logging
 from celery import shared_task
 from django.core.cache import cache
-from .models import Task, Notification
+from tasks.models import Task
+from .models import Notification
 from .choices import NotificationType
 
 logger = logging.getLogger("taskmanager")
@@ -15,7 +16,7 @@ def send_task_assigned_notification(self, task_id: int):
     Features:
     - Redis Cache-backed idempotency check to avoid duplicate notifications.
     - Exponential backoff retry on transient failures (1s, 2s, 4s).
-    - Structured error logging.
+    - Defensive handling for missing or unassigned records.
     """
     try:
         task = Task.objects.select_related("assignee", "creator", "project").get(id=task_id)
