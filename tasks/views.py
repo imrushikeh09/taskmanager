@@ -1,5 +1,5 @@
 from rest_framework import status, viewsets
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiResponse
 from common.views import BaseAPIView
 from projects.models import Project
 from tasks.models import Task
@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
+@extend_schema(exclude=True)
 class TaskListCreateAPIView(BaseAPIView):
     """
     APIView for listing and creating tasks.
@@ -72,6 +73,7 @@ class TaskListCreateAPIView(BaseAPIView):
         )
 
 
+@extend_schema(exclude=True)
 class TaskDetailAPIView(BaseAPIView):
     """
     APIView for retrieving, updating, and deleting an individual task.
@@ -164,6 +166,38 @@ class TaskDetailAPIView(BaseAPIView):
         )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List all tasks",
+        description="Retrieve a paginated list of tasks with filtering (status, priority, project, dates), full-text search, and ordering.",
+        tags=["Tasks"],
+    ),
+    create=extend_schema(
+        summary="Create a new task",
+        description="Create a task linked to a project and assignee.",
+        tags=["Tasks"],
+    ),
+    retrieve=extend_schema(
+        summary="Retrieve task details",
+        description="Get full task details with eager-loaded project and user metadata.",
+        tags=["Tasks"],
+    ),
+    update=extend_schema(
+        summary="Update task",
+        description="Replace all fields of a task.",
+        tags=["Tasks"],
+    ),
+    partial_update=extend_schema(
+        summary="Partially update a task",
+        description="Update specific fields of a task (e.g. status, priority, due date).",
+        tags=["Tasks"],
+    ),
+    destroy=extend_schema(
+        summary="Delete a task",
+        description="Remove a task idempotently.",
+        tags=["Tasks"],
+    ),
+)
 class TaskViewSet(viewsets.ModelViewSet):
     """
     Production-grade ModelViewSet providing complete CRUD for Tasks with:
