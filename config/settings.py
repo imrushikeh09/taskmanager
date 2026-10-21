@@ -1,4 +1,5 @@
 import os
+import socket
 from datetime import timedelta
 from dotenv import load_dotenv
 """
@@ -157,6 +158,37 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# Caching Configuration
+# Redis Cache-Aside with Automatic Local-Memory Fallback (Day 17 - Scenario 1, Problem 5)
+def _is_redis_available(host="127.0.0.1", port=6379, timeout=0.2):
+    """Probe Redis availability with a fast socket connect timeout."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        return False
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")
+
+if _is_redis_available():
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "TIMEOUT": 300,  # 5 minutes default TTL
+        }
+    }
+else:
+    # Graceful development and test runner fallback when Redis daemon is not running
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "taskmanager-locmem-fallback",
+            "TIMEOUT": 300,
+        }
+    }
 
 
 # Django REST Framework Configuration

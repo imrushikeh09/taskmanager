@@ -259,3 +259,17 @@ class TaskViewSet(viewsets.ModelViewSet):
         )
         serializer.instance = task
 
+    def perform_update(self, serializer):
+        """Update task and proactively invalidate cached performance reports."""
+        task = serializer.save()
+        from tasks.cache import invalidate_performance_cache
+        invalidate_performance_cache(task.project_id)
+
+    def perform_destroy(self, instance):
+        """Delete task and proactively invalidate cached performance reports."""
+        project_id = instance.project_id
+        instance.delete()
+        from tasks.cache import invalidate_performance_cache
+        invalidate_performance_cache(project_id)
+
+

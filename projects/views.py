@@ -54,3 +54,23 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(statistics, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Get project performance report",
+        description="Returns statistical project performance metrics using the Redis Cache-Aside pattern with 300s TTL.",
+        tags=["Projects"],
+        responses={200: OpenApiResponse(description="Project performance report")},
+    )
+    @action(detail=True, methods=["get"], url_path="performance-report")
+    def performance_report(self, request, pk=None):
+        """Return cached performance report using Redis Cache-Aside pattern."""
+        from tasks.services import TaskService
+
+        report = TaskService.get_heavy_performance_report(project_id=pk)
+        if not report:
+            return Response(
+                {"error": {"code": "NOT_FOUND", "message": f"Project {pk} not found."}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(report, status=status.HTTP_200_OK)
+

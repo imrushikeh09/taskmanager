@@ -18,3 +18,4 @@ rpds-py==2026.9.1
 sqlparse==0.6.0
 typing_extensions==4.16.0
 uritemplate==4.2.0
+redis==8.1.0
