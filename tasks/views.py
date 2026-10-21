@@ -1,8 +1,9 @@
-from rest_framework import status
+from rest_framework import status, viewsets
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 from common.views import BaseAPIView
 from projects.models import Project
 from tasks.models import Task
+from tasks.filters import TaskFilter
 from tasks.serializers import TaskReadSerializer, TaskWriteSerializer, TaskUpdateSerializer
 from tasks.services import TaskService
 from django.contrib.auth import get_user_model
@@ -161,3 +162,45 @@ class TaskDetailAPIView(BaseAPIView):
             status_code=status.HTTP_204_NO_CONTENT,
             message="Task deleted successfully.",
         )
+
+
+class TaskViewSet(viewsets.ModelViewSet):
+    """
+    Production-grade ModelViewSet providing complete CRUD for Tasks with:
+    - Pagination (PageNumberPagination)
+    - Filtering by project, status, priority, and date ranges (TaskFilter)
+    - Full-text search on title and description
+    - Ordering by due date, priority, and creation time
+    - Eager loading (with_related) to prevent N+1 queries
+    """
+    queryset = Task.objects.with_related().all()
+    filterset_class = TaskFilter
+    search_fields = ["title", "description"]
+    ordering_fields = ["due_date", "priority", "created_at"]
+    ordering = ["-created_at"]
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return TaskWriteSerializer
+        if self.action in ["update", "partial_update"]:
+            return TaskUpdateSerializer
+        return TaskReadSerializer
+
+    def perform_create(self, serializer):
+        validated = serializer.validated_data
+        creator = self.request.user if self.request.user.is_authenticated else User.objects.first()
+        project = Project.objects.get(id=validated["project_id"])
+        assignee = User.objects.filter(id=validated.get("assignee_id")).first() if validated.get("assignee_id") else None
+
+        task = TaskService.create_task(
+            project=project,
+            creator=creator,
+            assignee=assignee,
+            title=validated["title"],
+            description=validated.get("description", ""),
+            status=validated.get("status"),
+            priority=validated.get("priority"),
+            due_date=validated.get("due_date"),
+        )
+        serializer.instance = task
+

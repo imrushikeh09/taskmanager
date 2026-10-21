@@ -153,8 +153,8 @@ class TaskAPIViewTestCase(TestCase):
         )
 
     def test_get_task_list(self):
-        """GET /api/v1/tasks/ returns 200 with standard envelope."""
-        response = self.client.get("/api/v1/tasks/")
+        """GET /api/v1/tasks/apiview/ returns 200 with standard envelope."""
+        response = self.client.get("/api/v1/tasks/apiview/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertTrue(data["success"])
@@ -164,7 +164,7 @@ class TaskAPIViewTestCase(TestCase):
         self.assertEqual(data["data"][0]["project_name"], "API Project")
 
     def test_post_task_success(self):
-        """POST /api/v1/tasks/ creates a task and returns 201 Created."""
+        """POST /api/v1/tasks/apiview/ creates a task and returns 201 Created."""
         payload = {
             "title": "Created via APIView",
             "description": "Explicit request handling test",
@@ -172,7 +172,7 @@ class TaskAPIViewTestCase(TestCase):
             "status": "TODO",
             "priority": "HIGH",
         }
-        response = self.client.post("/api/v1/tasks/", payload, format="json")
+        response = self.client.post("/api/v1/tasks/apiview/", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertTrue(data["success"])
@@ -180,12 +180,12 @@ class TaskAPIViewTestCase(TestCase):
         self.assertEqual(data["data"]["priority"], "HIGH")
 
     def test_post_task_validation_failure(self):
-        """POST /api/v1/tasks/ with invalid data returns 400 with standard error envelope."""
+        """POST /api/v1/tasks/apiview/ with invalid data returns 400 with standard error envelope."""
         payload = {
             "title": "ab",  # Too short (min_length=3)
             "project_id": 999999,  # Non-existent project
         }
-        response = self.client.post("/api/v1/tasks/", payload, format="json")
+        response = self.client.post("/api/v1/tasks/apiview/", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         data = response.json()
         self.assertIn("error", data)
@@ -194,30 +194,120 @@ class TaskAPIViewTestCase(TestCase):
         self.assertIn("project_id", data["error"]["details"])
 
     def test_get_task_detail_success(self):
-        """GET /api/v1/tasks/<id>/ returns 200 OK."""
-        response = self.client.get(f"/api/v1/tasks/{self.task.id}/")
+        """GET /api/v1/tasks/apiview/<id>/ returns 200 OK."""
+        response = self.client.get(f"/api/v1/tasks/apiview/{self.task.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["data"]["id"], self.task.id)
 
     def test_get_task_detail_not_found(self):
-        """GET /api/v1/tasks/99999/ returns 404 Not Found."""
-        response = self.client.get("/api/v1/tasks/99999/")
+        """GET /api/v1/tasks/apiview/99999/ returns 404 Not Found."""
+        response = self.client.get("/api/v1/tasks/apiview/99999/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         data = response.json()
         self.assertEqual(data["error"]["code"], "NOT_FOUND")
 
     def test_patch_task_partial_update(self):
-        """PATCH /api/v1/tasks/<id>/ partially updates status and returns 200 OK."""
+        """PATCH /api/v1/tasks/apiview/<id>/ partially updates status and returns 200 OK."""
         payload = {"status": "IN_PROGRESS"}
-        response = self.client.patch(f"/api/v1/tasks/{self.task.id}/", payload, format="json")
+        response = self.client.patch(f"/api/v1/tasks/apiview/{self.task.id}/", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["data"]["status"], "IN_PROGRESS")
 
     def test_delete_task_success(self):
-        """DELETE /api/v1/tasks/<id>/ returns 204 No Content."""
-        response = self.client.delete(f"/api/v1/tasks/{self.task.id}/")
+        """DELETE /api/v1/tasks/apiview/<id>/ returns 204 No Content."""
+        response = self.client.delete(f"/api/v1/tasks/apiview/{self.task.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Task.objects.filter(id=self.task.id).exists())
+
+
+class TaskViewSetTestCase(TestCase):
+    """
+    Integration tests for TaskViewSet:
+    Verifies ModelViewSet with Pagination, Filtering, Search, and Ordering.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(username="viewset_user", password="secure_pass123")
+        self.project = Project.objects.create(name="ViewSet Project", owner=self.user)
+        self.task1 = TaskService.create_task(
+            project=self.project,
+            creator=self.user,
+            assignee=self.user,
+            title="Alpha Task",
+            description="First task description",
+            status=TaskStatus.TODO,
+            priority=TaskPriority.LOW,
+        )
+        self.task2 = TaskService.create_task(
+            project=self.project,
+            creator=self.user,
+            assignee=self.user,
+            title="Beta Task",
+            description="Second task description",
+            status=TaskStatus.IN_PROGRESS,
+            priority=TaskPriority.HIGH,
+        )
+
+    def test_viewset_list_pagination(self):
+        """GET /api/v1/tasks/ returns paginated response with count and results."""
+        response = self.client.get("/api/v1/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("count", data)
+        self.assertIn("results", data)
+        self.assertEqual(data["count"], 2)
+
+    def test_viewset_filter_by_status(self):
+        """GET /api/v1/tasks/?status=IN_PROGRESS filters accurately."""
+        response = self.client.get("/api/v1/tasks/?status=IN_PROGRESS")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["id"], self.task2.id)
+
+    def test_viewset_filter_by_priority(self):
+        """GET /api/v1/tasks/?priority=HIGH filters accurately."""
+        response = self.client.get("/api/v1/tasks/?priority=HIGH")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["priority"], "HIGH")
+
+    def test_viewset_search(self):
+        """GET /api/v1/tasks/?search=Alpha matches title."""
+        response = self.client.get("/api/v1/tasks/?search=Alpha")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["title"], "Alpha Task")
+
+    def test_viewset_create(self):
+        """POST /api/v1/tasks/ creates task through ModelViewSet."""
+        payload = {
+            "title": "Created via ViewSet",
+            "description": "ViewSet test",
+            "project_id": self.project.id,
+            "status": "TODO",
+            "priority": "MEDIUM",
+        }
+        response = self.client.post("/api/v1/tasks/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["title"], "Created via ViewSet")
+
+    def test_viewset_partial_update(self):
+        """PATCH /api/v1/tasks/<id>/ updates task via ModelViewSet."""
+        payload = {"status": "COMPLETED"}
+        response = self.client.patch(f"/api/v1/tasks/{self.task1.id}/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "COMPLETED")
+
+    def test_viewset_destroy(self):
+        """DELETE /api/v1/tasks/<id>/ deletes task via ModelViewSet."""
+        response = self.client.delete(f"/api/v1/tasks/{self.task1.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Task.objects.filter(id=self.task1.id).exists())
+
 

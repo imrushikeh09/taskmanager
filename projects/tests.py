@@ -54,3 +54,41 @@ class ProjectServiceTestCase(TestCase):
         self.assertEqual(stats["by_status"].get(TaskStatus.COMPLETED), 1)
         self.assertEqual(stats["by_priority"].get(TaskPriority.HIGH), 2)
         self.assertEqual(stats["by_priority"].get(TaskPriority.MEDIUM), 1)
+
+
+from rest_framework.test import APIClient
+from rest_framework import status
+
+
+class ProjectViewSetTestCase(TestCase):
+    """
+    Integration tests for ProjectViewSet endpoints and /projects/{id}/stats/ action.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(username="lead_dev", password="secure_pass123")
+        self.project = Project.objects.create(owner=self.user, name="Infrastructure Setup")
+        Task.objects.create(project=self.project, creator=self.user, title="Task A", status=TaskStatus.TODO)
+        Task.objects.create(project=self.project, creator=self.user, title="Task B", status=TaskStatus.COMPLETED)
+
+    def test_list_projects(self):
+        """GET /api/v1/projects/ returns paginated project list."""
+        response = self.client.get("/api/v1/projects/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("count", data)
+        self.assertIn("results", data)
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["name"], "Infrastructure Setup")
+
+    def test_project_stats_custom_action(self):
+        """GET /api/v1/projects/<id>/stats/ returns calculated task metrics."""
+        response = self.client.get(f"/api/v1/projects/{self.project.id}/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["project_id"], self.project.id)
+        self.assertEqual(data["total_tasks"], 2)
+        self.assertEqual(data["by_status"].get(TaskStatus.TODO), 1)
+        self.assertEqual(data["by_status"].get(TaskStatus.COMPLETED), 1)
+

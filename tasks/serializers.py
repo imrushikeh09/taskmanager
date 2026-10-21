@@ -74,17 +74,23 @@ class TaskWriteSerializer(serializers.Serializer):
         return value
 
 
-class TaskUpdateSerializer(serializers.Serializer):
+class TaskUpdateSerializer(serializers.ModelSerializer):
     """
     Serializer for partial updates (PATCH) on tasks.
     All fields are optional.
     """
-    title = serializers.CharField(max_length=255, min_length=3, required=False)
-    description = serializers.CharField(allow_blank=True, required=False)
-    status = serializers.ChoiceField(choices=TaskStatus.choices, required=False)
-    priority = serializers.ChoiceField(choices=TaskPriority.choices, required=False)
     assignee_id = serializers.IntegerField(required=False, allow_null=True)
-    due_date = serializers.DateField(required=False, allow_null=True)
+
+    class Meta:
+        model = Task
+        fields = ["title", "description", "status", "priority", "due_date", "assignee_id"]
+        extra_kwargs = {
+            "title": {"required": False, "min_length": 3},
+            "description": {"required": False},
+            "status": {"required": False},
+            "priority": {"required": False},
+            "due_date": {"required": False},
+        }
 
     def validate_assignee_id(self, value):
         if value is not None:
@@ -94,3 +100,13 @@ class TaskUpdateSerializer(serializers.Serializer):
             if not user.is_active:
                 raise serializers.ValidationError("Cannot assign task to an inactive user.")
         return value
+
+    def update(self, instance, validated_data):
+        assignee_id = validated_data.pop("assignee_id", None)
+        if assignee_id is not None:
+            instance.assignee = User.objects.get(id=assignee_id)
+        elif "assignee_id" in self.initial_data and assignee_id is None:
+            instance.assignee = None
+
+        return super().update(instance, validated_data)
+
