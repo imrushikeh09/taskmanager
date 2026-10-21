@@ -19,3 +19,12 @@ class TaskPriority(models.TextChoices):
     MEDIUM = "MEDIUM", "Medium"
     HIGH = "HIGH", "High"
     URGENT = "URGENT", "Urgent"
+
+
+class NotificationType(models.TextChoices):
+    """
+    Categorization of in-app notification events.
+    """
+    TASK_ASSIGNED = "TASK_ASSIGNED", "Task Assigned"
+    STATUS_CHANGED = "STATUS_CHANGED", "Status Changed"
+

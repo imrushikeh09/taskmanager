@@ -693,4 +693,235 @@ class RBACTestCase(TestCase):
         self.assertFalse(Project.objects.filter(id=self.project.id).exists())
 
 
+class CeleryNotificationTaskTests(TestCase):
+    """
+    Automated verification of Celery asynchronous background tasks (Day 18):
+    - Background task execution and DB notification creation
+    - Redis Cache atomic SETNX idempotency fence
+    - Exponential backoff retry logic on transient exceptions
+    - Safe handling for missing or unassigned records
+    """
+
+    def setUp(self):
+        self.creator = User.objects.create_user(username="celery_creator", password="password123")
+        self.assignee = User.objects.create_user(username="celery_assignee", password="password123")
+        self.project = Project.objects.create(name="Celery Project", owner=self.creator)
+        self.task = Task.objects.create(
+            project=self.project,
+            creator=self.creator,
+            assignee=self.assignee,
+            title="Async worker task",
+            status=TaskStatus.TODO,
+        )
+
+    def tearDown(self):
+        from django.core.cache import cache
+        cache.clear()
+
+    def test_send_task_assigned_notification_creates_db_record(self):
+        """Task assignment async job creates an in-app notification in PostgreSQL."""
+        from tasks.tasks import send_task_assigned_notification
+        from tasks.models import Notification
+        from tasks.choices import NotificationType
+
+        result = send_task_assigned_notification(self.task.id)
+        self.assertIsNotNone(result)
+
+        notif = Notification.objects.filter(recipient=self.assignee, task=self.task).first()
+        self.assertIsNotNone(notif)
+        self.assertEqual(notif.notification_type, NotificationType.TASK_ASSIGNED)
+        self.assertIn("You have been assigned to task", notif.message)
+        self.assertFalse(notif.is_read)
+
+    def test_send_task_assigned_notification_idempotency_fence(self):
+        """Executing the assignment task multiple times produces only 1 notification (idempotent)."""
+        from tasks.tasks import send_task_assigned_notification
+        from tasks.models import Notification
+
+        # First run: should create notification
+        first_result = send_task_assigned_notification(self.task.id)
+        self.assertIsInstance(first_result, int)
+
+        # Second run: should hit atomic Redis idempotency lock and return skipped_duplicate
+        second_result = send_task_assigned_notification(self.task.id)
+        self.assertEqual(second_result, "skipped_duplicate")
+
+        # Database must still have only 1 notification
+        count = Notification.objects.filter(recipient=self.assignee, task=self.task).count()
+        self.assertEqual(count, 1)
+
+    def test_send_task_assigned_notification_missing_task_graceful_exit(self):
+        """Non-existent task ID logs an error and returns None without raising an unhandled exception."""
+        from tasks.tasks import send_task_assigned_notification
+        result = send_task_assigned_notification(999999)
+        self.assertIsNone(result)
+
+    def test_send_task_assigned_notification_unassigned_task_skipped(self):
+        """Task without assignee gracefully skips notification creation."""
+        from tasks.tasks import send_task_assigned_notification
+        unassigned_task = Task.objects.create(
+            project=self.project,
+            creator=self.creator,
+            assignee=None,
+            title="Unassigned Task",
+        )
+        result = send_task_assigned_notification(unassigned_task.id)
+        self.assertIsNone(result)
+
+    def test_send_task_status_changed_notification_creates_db_record(self):
+        """Status change async job notifies creator when status progresses."""
+        from tasks.tasks import send_task_status_changed_notification
+        from tasks.models import Notification
+        from tasks.choices import NotificationType
+
+        result = send_task_status_changed_notification(self.task.id, "TODO", "COMPLETED")
+        self.assertIsNotNone(result)
+
+        notif = Notification.objects.filter(recipient=self.creator, task=self.task).first()
+        self.assertIsNotNone(notif)
+        self.assertEqual(notif.notification_type, NotificationType.STATUS_CHANGED)
+        self.assertIn("status changed from TODO to COMPLETED", notif.message)
+
+    def test_send_task_status_changed_idempotency(self):
+        """Submitting the exact same status transition twice triggers idempotency skip."""
+        from tasks.tasks import send_task_status_changed_notification
+        from tasks.models import Notification
+
+        first_res = send_task_status_changed_notification(self.task.id, "TODO", "IN_PROGRESS")
+        self.assertIsInstance(first_res, int)
+
+        second_res = send_task_status_changed_notification(self.task.id, "TODO", "IN_PROGRESS")
+        self.assertEqual(second_res, "skipped_duplicate")
+
+        count = Notification.objects.filter(recipient=self.creator, task=self.task).count()
+        self.assertEqual(count, 1)
+
+    def test_task_exponential_backoff_retry_on_transient_error(self):
+        """Verify exponential backoff retry mechanism is called on transient exceptions."""
+        from unittest.mock import patch
+        from tasks.tasks import send_task_assigned_notification
+
+        with patch.object(send_task_assigned_notification, "retry", side_effect=RuntimeError("Retry triggered")) as mock_retry:
+            with patch("tasks.models.Task.objects.select_related") as mock_qs:
+                mock_qs.return_value.get.side_effect = Exception("DB Connection Lost")
+                with self.assertRaises(RuntimeError):
+                    send_task_assigned_notification(self.task.id)
+
+                mock_retry.assert_called_once()
+                _, kwargs = mock_retry.call_args
+                # default request.retries is 0 -> 2 ** 0 = 1
+                self.assertEqual(kwargs.get("countdown"), 1)
+
+
+
+class NotificationAPITests(TestCase):
+    """
+    Automated integration tests for In-App Notification REST Endpoints:
+    - User tenant isolation (users only see their own notifications)
+    - Filtering by ?is_read status (leveraging composite index)
+    - Read state management (PATCH single, POST bulk read-all)
+    - Query efficiency guardrails
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user_a = User.objects.create_user(username="notif_user_a", password="password123")
+        self.user_b = User.objects.create_user(username="notif_user_b", password="password123")
+        self.project = Project.objects.create(name="Notification Project", owner=self.user_a)
+        self.task = Task.objects.create(
+            project=self.project,
+            creator=self.user_a,
+            assignee=self.user_a,
+            title="Notification Task",
+        )
+
+        from tasks.models import Notification
+        from tasks.choices import NotificationType
+
+        # Create notifications for user A (1 unread, 1 read)
+        self.notif_a_unread = Notification.objects.create(
+            recipient=self.user_a,
+            task=self.task,
+            notification_type=NotificationType.TASK_ASSIGNED,
+            message="Alert 1 for user A",
+            is_read=False,
+        )
+        self.notif_a_read = Notification.objects.create(
+            recipient=self.user_a,
+            task=self.task,
+            notification_type=NotificationType.STATUS_CHANGED,
+            message="Alert 2 for user A",
+            is_read=True,
+        )
+        # Create notification for user B
+        self.notif_b = Notification.objects.create(
+            recipient=self.user_b,
+            task=self.task,
+            notification_type=NotificationType.TASK_ASSIGNED,
+            message="Alert for user B",
+            is_read=False,
+        )
+
+    def test_unauthenticated_request_rejected(self):
+        """Unauthenticated requests to notifications endpoint return 401 Unauthorized."""
+        response = self.client.get("/api/v1/notifications/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_user_can_only_list_their_own_notifications(self):
+        """Authenticated user only receives notifications addressed to them."""
+        self.client.force_authenticate(user=self.user_a)
+        response = self.client.get("/api/v1/notifications/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        notif_ids = [item["id"] for item in results]
+        self.assertIn(self.notif_a_unread.id, notif_ids)
+        self.assertIn(self.notif_a_read.id, notif_ids)
+        self.assertNotIn(self.notif_b.id, notif_ids)
+
+    def test_filter_notifications_by_is_read(self):
+        """Query param ?is_read=false returns only unread notifications."""
+        self.client.force_authenticate(user=self.user_a)
+        response = self.client.get("/api/v1/notifications/?is_read=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], self.notif_a_unread.id)
+        self.assertFalse(results[0]["is_read"])
+
+    def test_mark_single_notification_as_read(self):
+        """PATCH /api/v1/notifications/{id}/read/ updates is_read to true."""
+        self.client.force_authenticate(user=self.user_a)
+        response = self.client.patch(f"/api/v1/notifications/{self.notif_a_unread.id}/read/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_read"])
+
+        self.notif_a_unread.refresh_from_db()
+        self.assertTrue(self.notif_a_unread.is_read)
+
+    def test_cannot_read_other_user_notification(self):
+        """User cannot access or mark another user's notification as read (404 Not Found)."""
+        self.client.force_authenticate(user=self.user_a)
+        response = self.client.patch(f"/api/v1/notifications/{self.notif_b.id}/read/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_mark_all_notifications_as_read(self):
+        """POST /api/v1/notifications/read-all/ marks all unread notifications as read."""
+        self.client.force_authenticate(user=self.user_a)
+        response = self.client.post("/api/v1/notifications/read-all/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated_count"], 1)
+
+        self.notif_a_unread.refresh_from_db()
+        self.assertTrue(self.notif_a_unread.is_read)
+
+    def test_notification_list_query_efficiency(self):
+        """Notification list query has eager loading and does not produce N+1 queries."""
+        self.client.force_authenticate(user=self.user_a)
+        with self.assertNumQueries(2):  # 1 count query + 1 select query with select_related
+            response = self.client.get("/api/v1/notifications/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+
 

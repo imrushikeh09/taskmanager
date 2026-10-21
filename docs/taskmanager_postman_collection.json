@@ -244,6 +244,61 @@
           }
         }
       ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "List User Notifications",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "notifications", ""]
+            }
+          }
+        },
+        {
+          "name": "Filter Unread Notifications",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/?is_read=false",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "notifications", ""],
+              "query": [
+                {
+                  "key": "is_read",
+                  "value": "false"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mark Notification as Read",
+          "request": {
+            "method": "PATCH",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/1/read/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "notifications", "1", "read", ""]
+            }
+          }
+        },
+        {
+          "name": "Mark All Notifications as Read",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/read-all/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "notifications", "read-all", ""]
+            }
+          }
+        }
+      ]
     }
   ]
 }

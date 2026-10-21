@@ -1,12 +1,14 @@
-from rest_framework import status, viewsets
+from django.db import transaction
+from rest_framework import status, viewsets, permissions
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiResponse
 from common.views import BaseAPIView
 from common.permissions import IsOwnerOrReadOnly
 from projects.models import Project
-from tasks.models import Task
+from tasks.models import Task, Notification
 from tasks.filters import TaskFilter
-from tasks.serializers import TaskReadSerializer, TaskWriteSerializer, TaskUpdateSerializer
+from tasks.serializers import TaskReadSerializer, TaskWriteSerializer, TaskUpdateSerializer, NotificationSerializer
 from tasks.services import TaskService
 from django.contrib.auth import get_user_model
 
@@ -260,10 +262,20 @@ class TaskViewSet(viewsets.ModelViewSet):
         serializer.instance = task
 
     def perform_update(self, serializer):
-        """Update task and proactively invalidate cached performance reports."""
+        """Update task, proactively invalidate cached performance reports, and dispatch async notifications."""
+        old_task = self.get_object()
+        old_assignee_id = old_task.assignee_id
+        old_status = old_task.status
+
         task = serializer.save()
         from tasks.cache import invalidate_performance_cache
         invalidate_performance_cache(task.project_id)
+
+        from tasks.tasks import send_task_assigned_notification, send_task_status_changed_notification
+        if task.assignee_id and task.assignee_id != old_assignee_id:
+            transaction.on_commit(lambda: send_task_assigned_notification.delay(task.id))
+        if task.status != old_status:
+            transaction.on_commit(lambda: send_task_status_changed_notification.delay(task.id, old_status, task.status))
 
     def perform_destroy(self, instance):
         """Delete task and proactively invalidate cached performance reports."""
@@ -271,5 +283,64 @@ class TaskViewSet(viewsets.ModelViewSet):
         instance.delete()
         from tasks.cache import invalidate_performance_cache
         invalidate_performance_cache(project_id)
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List user notifications",
+        description="Retrieve a paginated list of in-app notifications for the authenticated user. Use query param ?is_read=true or ?is_read=false.",
+        tags=["Notifications"],
+    ),
+    retrieve=extend_schema(
+        summary="Retrieve notification detail",
+        description="Get specific in-app notification details.",
+        tags=["Notifications"],
+    ),
+    mark_as_read=extend_schema(
+        summary="Mark notification as read",
+        description="Acknowledge and mark a single notification as read.",
+        responses={200: NotificationSerializer},
+        tags=["Notifications"],
+    ),
+    mark_all_as_read=extend_schema(
+        summary="Mark all notifications as read",
+        description="Acknowledge and mark all unread notifications as read for current user.",
+        responses={200: OpenApiResponse(description="All notifications marked as read")},
+        tags=["Notifications"],
+    ),
+)
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    API endpoint for viewing and managing in-app notifications for the authenticated user.
+    Leverages the composite index (recipient, is_read) for instant response times.
+    """
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        qs = Notification.objects.filter(recipient=self.request.user).select_related("task")
+        is_read_param = self.request.query_params.get("is_read")
+        if is_read_param is not None:
+            is_read = is_read_param.lower() in ["true", "1", "yes"]
+            qs = qs.filter(is_read=is_read)
+        return qs.order_by("-created_at")
+
+    @action(detail=True, methods=["patch", "post"], url_path="read")
+    def mark_as_read(self, request, pk=None):
+        notification = self.get_object()
+        if not notification.is_read:
+            notification.is_read = True
+            notification.save(update_fields=["is_read", "updated_at"])
+        serializer = self.get_serializer(notification)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="read-all")
+    def mark_all_as_read(self, request):
+        updated_count = Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
+        return Response(
+            {"message": "All unread notifications marked as read.", "updated_count": updated_count},
+            status=status.HTTP_200_OK,
+        )
+
 
 

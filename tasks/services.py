@@ -48,6 +48,12 @@ class TaskService:
 
         # Invalidate cached report for this project on write
         invalidate_performance_cache(project.id)
+
+        # Asynchronous In-App Notification (Day 18)
+        if assignee:
+            from tasks.tasks import send_task_assigned_notification
+            transaction.on_commit(lambda: send_task_assigned_notification.delay(task.id))
+
         return task
 
     @classmethod
@@ -60,11 +66,17 @@ class TaskService:
         if new_status not in TaskStatus.values:
             raise ValidationError({"status": f"Invalid status '{new_status}'. Allowed: {TaskStatus.values}"})
 
+        old_status = task.status
         task.status = new_status
         task.save(update_fields=["status", "updated_at"])
 
         # Invalidate cached report for this project on status change
         invalidate_performance_cache(task.project_id)
+
+        if old_status != new_status:
+            from tasks.tasks import send_task_status_changed_notification
+            transaction.on_commit(lambda: send_task_status_changed_notification.delay(task.id, old_status, new_status))
+
         return task
 
     @classmethod
@@ -77,11 +89,17 @@ class TaskService:
         if assignee and not assignee.is_active:
             raise ValidationError({"assignee": "Cannot assign task to an inactive user account."})
 
+        old_assignee_id = task.assignee_id
         task.assignee = assignee
         task.save(update_fields=["assignee", "updated_at"])
 
         # Invalidate cached report for this project on assignment change
         invalidate_performance_cache(task.project_id)
+
+        if assignee and assignee.id != old_assignee_id:
+            from tasks.tasks import send_task_assigned_notification
+            transaction.on_commit(lambda: send_task_assigned_notification.delay(task.id))
+
         return task
 
     @classmethod
