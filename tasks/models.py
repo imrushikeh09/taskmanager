@@ -1,22 +1,11 @@
 from django.conf import settings
 from django.db import models
+from common.models import TimeStampedModel
+from .choices import TaskStatus, TaskPriority
+from .querysets import TaskQuerySet
 
 
-class TaskStatus(models.TextChoices):
-    TODO = "TODO", "To Do"
-    IN_PROGRESS = "IN_PROGRESS", "In Progress"
-    BLOCKED = "BLOCKED", "Blocked"
-    COMPLETED = "COMPLETED", "Completed"
-
-
-class TaskPriority(models.TextChoices):
-    LOW = "LOW", "Low"
-    MEDIUM = "MEDIUM", "Medium"
-    HIGH = "HIGH", "High"
-    URGENT = "URGENT", "Urgent"
-
-
-class Task(models.Model):
+class Task(TimeStampedModel):
     """
     Represents an actionable unit of work within a project.
     Tracks assignment, progress status, priority, and due dates.
@@ -60,8 +49,9 @@ class Task(models.Model):
         related_name="assigned_tasks",
         help_text="User assigned to perform the task",
     )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+
+    # Attach custom domain queryset as default manager
+    objects = TaskQuerySet.as_manager()
 
     class Meta:
         db_table = "tasks"

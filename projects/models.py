@@ -1,8 +1,9 @@
 from django.conf import settings
 from django.db import models
+from common.models import TimeStampedModel
 
 
-class Project(models.Model):
+class Project(TimeStampedModel):
     """
     Represents a project workspace owned by a user.
     Contains tasks and defines boundaries for team access.
@@ -15,8 +16,6 @@ class Project(models.Model):
         related_name="owned_projects",
         help_text="User who owns and manages the project",
     )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "projects"
