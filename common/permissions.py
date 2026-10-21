@@ -1,32 +1,62 @@
 from rest_framework import permissions
+from common.roles import UserRole, get_user_role
 
 
-class IsOwnerOrReadOnly(permissions.BasePermission):
+class RBACPermission(permissions.BasePermission):
     """
-    Object-level permission allowing read-only access for any authenticated user,
-    but restricting write/delete operations exclusively to the resource owner/creator.
-    Returns 401 if unauthenticated and 403 if authenticated but not the owner.
+    Role-Based Access Control (RBAC) & Object Ownership Permission (Day 14):
+    - ADMIN: Full management access across all resources (read, write, update, delete).
+    - CONTRIBUTOR: Standard member. Can view all resources, create resources,
+      and update/delete ONLY the resources they personally created or own.
+    - VIEWER: Strictly read-only (GET, HEAD, OPTIONS). All mutations return 403 Forbidden.
+    - UNAUTHENTICATED: Safe methods allowed; all mutations return 401 Unauthorized.
     """
 
     def has_permission(self, request, view):
-        """Allow read-only requests or require authentication for modifications."""
+        """Evaluate view-level permissions and role mutation privileges."""
+        # Safe methods (GET, HEAD, OPTIONS) are allowed to all clients
         if request.method in permissions.SAFE_METHODS:
             return True
-        return bool(request.user and request.user.is_authenticated)
+
+        # Mutation methods require authentication (returns 401 if unauthenticated)
+        if not (request.user and request.user.is_authenticated):
+            return False
+
+        # Role Check: Viewers are strictly prohibited from write operations
+        role = get_user_role(request.user)
+        if role == UserRole.VIEWER:
+            return False
+
+        # Admins and Contributors are permitted to submit mutations
+        return True
 
     def has_object_permission(self, request, view, obj):
-        """Grant write access only to the owner or creator of the object."""
-        # Read-only methods (GET, HEAD, OPTIONS) are permitted
+        """Evaluate object-level ownership boundaries and Admin overrides."""
+        # Safe methods (GET, HEAD, OPTIONS) are permitted
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        # Check for 'owner' field (e.g. Project)
+        # Admins have master override permissions on any object
+        role = get_user_role(request.user)
+        if role == UserRole.ADMIN:
+            return True
+
+        # Viewers cannot modify objects
+        if role == UserRole.VIEWER:
+            return False
+
+        # Contributors can only modify resources they personally own or created
+        # Check Project ownership
         if hasattr(obj, "owner"):
             return obj.owner == request.user
 
-        # Check for 'creator' field (e.g. Task)
+        # Check Task ownership (task creator OR parent project owner)
         if hasattr(obj, "creator"):
-            # Task creator OR project owner has permission
             return obj.creator == request.user or (hasattr(obj, "project") and obj.project.owner == request.user)
 
         return False
+
+
+# Backward compatibility alias
+IsOwnerOrReadOnly = RBACPermission
+

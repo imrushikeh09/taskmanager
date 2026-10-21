@@ -1,0 +1,249 @@
+{
+  "info": {
+    "name": "Task Manager Enterprise REST API",
+    "_postman_id": "a90df7e2-4113-4e4b-95bb-7b19842f4c3a",
+    "description": "Enterprise REST API Collection for Task Manager supporting SimpleJWT, Projects, Tasks, and Redis Caching.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Obtain JWT Token Pair",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"imrushi\",\n  \"password\": \"your_password\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/token/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "token", ""]
+            }
+          }
+        },
+        {
+          "name": "Refresh Access Token",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/token/refresh/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "token", "refresh", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Projects",
+      "item": [
+        {
+          "name": "List Projects",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/?page=1&ordering=-created_at",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", ""],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "ordering", "value": "-created_at" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Project",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"FinTech Core Service\",\n  \"description\": \"Payments & Ledger processing backend\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", ""]
+            }
+          }
+        },
+        {
+          "name": "Retrieve Project",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/1/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Partially Update Project",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Updated project scope\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/1/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Delete Project",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/1/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Get Project Stats (SQL Aggregation)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/1/stats/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "1", "stats", ""]
+            }
+          }
+        },
+        {
+          "name": "Get Performance Report (Redis Cache-Aside)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/projects/1/performance-report/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "projects", "1", "performance-report", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tasks",
+      "item": [
+        {
+          "name": "List Tasks (Filter, Search, Order)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tasks/?page=1&status=IN_PROGRESS&priority=HIGH&search=database&ordering=-created_at",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tasks", ""],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "status", "value": "IN_PROGRESS" },
+                { "key": "priority", "value": "HIGH" },
+                { "key": "search", "value": "database" },
+                { "key": "ordering", "value": "-created_at" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Task",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Implement Transaction Outbox\",\n  \"description\": \"Reliable event dispatch for banking alerts\",\n  \"project_id\": 1,\n  \"status\": \"TODO\",\n  \"priority\": \"HIGH\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tasks/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tasks", ""]
+            }
+          }
+        },
+        {
+          "name": "Retrieve Task",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tasks/1/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tasks", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Partially Update Task",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"COMPLETED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tasks/1/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tasks", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Delete Task",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tasks/1/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "tasks", "1", ""]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
