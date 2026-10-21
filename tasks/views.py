@@ -1,6 +1,8 @@
 from rest_framework import status, viewsets
+from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiResponse
 from common.views import BaseAPIView
+from common.permissions import IsOwnerOrReadOnly
 from projects.models import Project
 from tasks.models import Task
 from tasks.filters import TaskFilter
@@ -16,7 +18,9 @@ class TaskListCreateAPIView(BaseAPIView):
     """
     APIView for listing and creating tasks.
     Demonstrates explicit DRF request processing and service delegation.
+    Secured by IsOwnerOrReadOnly.
     """
+    permission_classes = [IsOwnerOrReadOnly]
 
     @extend_schema(
         summary="List all tasks",
@@ -48,8 +52,8 @@ class TaskListCreateAPIView(BaseAPIView):
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
 
-        # Resolve creator (default to first active user or request.user if authenticated)
-        creator = request.user if request.user.is_authenticated else User.objects.first()
+        # Resolve creator from authenticated user
+        creator = request.user
         project = Project.objects.get(id=validated["project_id"])
         assignee = User.objects.filter(id=validated.get("assignee_id")).first() if validated.get("assignee_id") else None
 
@@ -77,7 +81,9 @@ class TaskListCreateAPIView(BaseAPIView):
 class TaskDetailAPIView(BaseAPIView):
     """
     APIView for retrieving, updating, and deleting an individual task.
+    Secured by IsOwnerOrReadOnly: safe reads allowed, mutations restricted to creator or project owner.
     """
+    permission_classes = [IsOwnerOrReadOnly]
 
     def get_object(self, pk):
         """Helper to fetch task with eager loaded relationships or None."""
@@ -97,6 +103,7 @@ class TaskDetailAPIView(BaseAPIView):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
+        self.check_object_permissions(request, task)
         serializer = TaskReadSerializer(task)
         return self.success_response(data=serializer.data)
 
@@ -115,6 +122,7 @@ class TaskDetailAPIView(BaseAPIView):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
+        self.check_object_permissions(request, task)
         serializer = TaskUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
@@ -158,6 +166,7 @@ class TaskDetailAPIView(BaseAPIView):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
+        self.check_object_permissions(request, task)
         task.delete()
         return self.success_response(
             data=None,
@@ -206,8 +215,11 @@ class TaskViewSet(viewsets.ModelViewSet):
     - Full-text search on title and description
     - Ordering by due date, priority, and creation time
     - Eager loading (with_related) to prevent N+1 queries
+    - Secured by IsOwnerOrReadOnly permissions
     """
     queryset = Task.objects.with_related().all()
+    serializer_class = TaskReadSerializer
+    permission_classes = [IsOwnerOrReadOnly]
     filterset_class = TaskFilter
     search_fields = ["title", "description"]
     ordering_fields = ["due_date", "priority", "created_at"]
@@ -220,9 +232,18 @@ class TaskViewSet(viewsets.ModelViewSet):
             return TaskUpdateSerializer
         return TaskReadSerializer
 
+    def create(self, request, *args, **kwargs):
+        """Create a new task and return the full populated read representation."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        read_serializer = TaskReadSerializer(serializer.instance)
+        headers = self.get_success_headers(read_serializer.data)
+        return Response(read_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         validated = serializer.validated_data
-        creator = self.request.user if self.request.user.is_authenticated else User.objects.first()
+        creator = self.request.user
         project = Project.objects.get(id=validated["project_id"])
         assignee = User.objects.filter(id=validated.get("assignee_id")).first() if validated.get("assignee_id") else None
 

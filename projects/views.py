@@ -5,6 +5,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResp
 from projects.models import Project
 from projects.serializers import ProjectSerializer
 from projects.services import ProjectService
+from common.permissions import IsOwnerOrReadOnly
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -22,17 +23,18 @@ class ProjectViewSet(viewsets.ModelViewSet):
     """
     ModelViewSet providing complete CRUD for Projects,
     plus sub-resource aggregation statistics (/projects/{id}/stats/).
+    Secured by IsOwnerOrReadOnly: anyone can view, but only project owners can modify/delete.
     """
     queryset = Project.objects.select_related("owner").all()
     serializer_class = ProjectSerializer
+    permission_classes = [IsOwnerOrReadOnly]
     search_fields = ["name", "description"]
     ordering_fields = ["created_at", "name"]
     ordering = ["-created_at"]
 
     def perform_create(self, serializer):
-        """Assign project owner automatically."""
-        owner = self.request.user if self.request.user.is_authenticated else User.objects.first()
-        serializer.save(owner=owner)
+        """Assign project owner automatically to authenticated user."""
+        serializer.save(owner=self.request.user)
 
     @extend_schema(
         summary="Get project task metrics",

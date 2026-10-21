@@ -143,6 +143,7 @@ class TaskAPIViewTestCase(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.user = User.objects.create_user(username="api_user", password="secure_pass123")
+        self.client.force_authenticate(user=self.user)
         self.project = Project.objects.create(name="API Project", owner=self.user)
         self.task = TaskService.create_task(
             project=self.project,
@@ -151,6 +152,13 @@ class TaskAPIViewTestCase(TestCase):
             title="Initial API Task",
             description="Testing endpoint flow",
         )
+
+    def test_post_task_unauthenticated_fails(self):
+        """POST /api/v1/tasks/apiview/ without auth returns 401 Unauthorized."""
+        self.client.force_authenticate(user=None)
+        payload = {"title": "Unauth Task", "project_id": self.project.id}
+        response = self.client.post("/api/v1/tasks/apiview/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_get_task_list(self):
         """GET /api/v1/tasks/apiview/ returns 200 with standard envelope."""
@@ -231,6 +239,7 @@ class TaskViewSetTestCase(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.user = User.objects.create_user(username="viewset_user", password="secure_pass123")
+        self.client.force_authenticate(user=self.user)
         self.project = Project.objects.create(name="ViewSet Project", owner=self.user)
         self.task1 = TaskService.create_task(
             project=self.project,
@@ -309,5 +318,108 @@ class TaskViewSetTestCase(TestCase):
         response = self.client.delete(f"/api/v1/tasks/{self.task1.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Task.objects.filter(id=self.task1.id).exists())
+
+    def test_viewset_create_unauthenticated_fails(self):
+        """POST /api/v1/tasks/ without auth returns 401 Unauthorized."""
+        self.client.force_authenticate(user=None)
+        payload = {
+            "title": "Unauth Task",
+            "project_id": self.project.id,
+        }
+        response = self.client.post("/api/v1/tasks/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_viewset_modify_non_owner_forbidden(self):
+        """PATCH /api/v1/tasks/<id>/ by non-owner returns 403 Forbidden."""
+        other_user = User.objects.create_user(username="random_dev", password="password123")
+        self.client.force_authenticate(user=other_user)
+        payload = {"title": "Attempted Hack"}
+        response = self.client.patch(f"/api/v1/tasks/{self.task1.id}/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class AuthAndJWTTestCase(TestCase):
+    """
+    Integration tests for SimpleJWT Authentication:
+    - Token generation (/api/v1/auth/token/)
+    - Token refresh (/api/v1/auth/token/refresh/)
+    - Bearer header authorization on protected resources
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.username = "jwt_tester"
+        self.password = "strong_jwt_pass123"
+        self.user = User.objects.create_user(
+            username=self.username,
+            password=self.password,
+            email="jwt_tester@example.com",
+        )
+        self.project = Project.objects.create(name="JWT Project", owner=self.user)
+
+    def test_token_obtain_pair_success(self):
+        """POST /api/v1/auth/token/ with valid credentials returns access and refresh tokens."""
+        response = self.client.post(
+            "/api/v1/auth/token/",
+            {"username": self.username, "password": self.password},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("access", data)
+        self.assertIn("refresh", data)
+        self.assertTrue(len(data["access"]) > 20)
+        self.assertTrue(len(data["refresh"]) > 20)
+
+    def test_token_obtain_pair_invalid_credentials(self):
+        """POST /api/v1/auth/token/ with wrong password returns 401 Unauthorized."""
+        response = self.client.post(
+            "/api/v1/auth/token/",
+            {"username": self.username, "password": "wrong_password"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_token_refresh_success(self):
+        """POST /api/v1/auth/token/refresh/ with valid refresh token returns fresh access token."""
+        obtain_res = self.client.post(
+            "/api/v1/auth/token/",
+            {"username": self.username, "password": self.password},
+            format="json",
+        )
+        refresh_token = obtain_res.json()["refresh"]
+
+        refresh_res = self.client.post(
+            "/api/v1/auth/token/refresh/",
+            {"refresh": refresh_token},
+            format="json",
+        )
+        self.assertEqual(refresh_res.status_code, status.HTTP_200_OK)
+        data = refresh_res.json()
+        self.assertIn("access", data)
+
+    def test_bearer_token_authorization_on_endpoints(self):
+        """Requesting protected write endpoint with Bearer header authenticates user."""
+        obtain_res = self.client.post(
+            "/api/v1/auth/token/",
+            {"username": self.username, "password": self.password},
+            format="json",
+        )
+        access_token = obtain_res.json()["access"]
+
+        # Authenticate via HTTP Authorization header
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        response = self.client.post(
+            "/api/v1/tasks/",
+            {
+                "title": "JWT Authenticated Task",
+                "project_id": self.project.id,
+                "status": "TODO",
+                "priority": "HIGH",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["creator_username"], self.username)
 
 

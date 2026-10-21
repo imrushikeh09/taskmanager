@@ -92,3 +92,33 @@ class ProjectViewSetTestCase(TestCase):
         self.assertEqual(data["by_status"].get(TaskStatus.TODO), 1)
         self.assertEqual(data["by_status"].get(TaskStatus.COMPLETED), 1)
 
+    def test_create_project_unauthenticated_fails(self):
+        """POST /api/v1/projects/ without auth returns 401 Unauthorized."""
+        payload = {"name": "Unauthorized Project", "description": "Should fail"}
+        response = self.client.post("/api/v1/projects/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_create_project_authenticated(self):
+        """POST /api/v1/projects/ with authenticated user assigns owner automatically."""
+        self.client.force_authenticate(user=self.user)
+        payload = {"name": "New Microservice", "description": "Auth test project"}
+        response = self.client.post("/api/v1/projects/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["owner_username"], self.user.username)
+
+    def test_update_project_non_owner_forbidden(self):
+        """PATCH /api/v1/projects/<id>/ by non-owner returns 403 Forbidden."""
+        other_user = User.objects.create_user(username="intruder", password="password123")
+        self.client.force_authenticate(user=other_user)
+        payload = {"name": "Hijacked Project"}
+        response = self.client.patch(f"/api/v1/projects/{self.project.id}/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_update_project_owner_success(self):
+        """PATCH /api/v1/projects/<id>/ by owner succeeds with 200 OK."""
+        self.client.force_authenticate(user=self.user)
+        payload = {"name": "Updated Setup"}
+        response = self.client.patch(f"/api/v1/projects/{self.project.id}/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "Updated Setup")
+
