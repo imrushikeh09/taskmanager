@@ -1,0 +1,53 @@
+# ==============================================================================
+# Production Docker Ignore (.dockerignore)
+# Prevents host artifacts, secrets, and cache directories from leaking into images.
+# ==============================================================================
+
+# Virtual Environments & Package Managers
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Python Bytecode & Runtime Caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment Variables & Secrets (CRITICAL)
+.env
+.env.*
+!.env.example
+
+# Git Metadata
+.git/
+.gitignore
+.gitattributes
+
+# IDE & Editor Configurations
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing & Coverage Artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Local Database & Media Files
+*.sqlite3
+*.db
+media/
+scratch/
+
+# Local Logs & Profiling
+*.log
+.system_generated/
