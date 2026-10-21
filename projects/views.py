@@ -7,6 +7,7 @@ from projects.serializers import ProjectSerializer
 from projects.services import ProjectService
 from common.permissions import IsOwnerOrReadOnly
 from django.contrib.auth import get_user_model
+from django.db.models import Count
 
 User = get_user_model()
 
@@ -24,8 +25,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
     ModelViewSet providing complete CRUD for Projects,
     plus sub-resource aggregation statistics (/projects/{id}/stats/).
     Secured by IsOwnerOrReadOnly: anyone can view, but only project owners can modify/delete.
+    Annotates task_count in SQL to prevent N+1 query regressions.
     """
-    queryset = Project.objects.select_related("owner").all()
+    queryset = Project.objects.select_related("owner").annotate(task_count=Count("tasks")).all()
     serializer_class = ProjectSerializer
     permission_classes = [IsOwnerOrReadOnly]
     search_fields = ["name", "description"]

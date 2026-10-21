@@ -337,6 +337,43 @@ class TaskViewSetTestCase(TestCase):
         response = self.client.patch(f"/api/v1/tasks/{self.task1.id}/", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_viewset_list_tasks_query_count_is_constant(self):
+        """
+        Verify that GET /api/v1/tasks/ executes strictly 2 queries (1 count, 1 eager-loaded page)
+        regardless of whether there are 2 or 20 tasks in the database.
+        Prevents N+1 regression on project, creator, and assignee lookups.
+        """
+        extra_tasks = [
+            Task(
+                project=self.project,
+                creator=self.user,
+                assignee=self.user,
+                title=f"Scalability Task {i}",
+                status=TaskStatus.TODO,
+                priority=TaskPriority.MEDIUM,
+            )
+            for i in range(18)
+        ]
+        Task.objects.bulk_create(extra_tasks)
+
+        self.client.force_authenticate(user=self.user)
+        # Exactly 2 queries: 1 for pagination COUNT, 1 for paginated page with eager JOINs
+        with self.assertNumQueries(2):
+            response = self.client.get("/api/v1/tasks/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 20)
+
+    def test_viewset_retrieve_task_query_count_is_constant(self):
+        """
+        Verify that GET /api/v1/tasks/<id>/ executes strictly 1 query
+        with eager loading for project, creator, and assignee.
+        """
+        self.client.force_authenticate(user=self.user)
+        with self.assertNumQueries(1):
+            response = self.client.get(f"/api/v1/tasks/{self.task1.id}/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["id"], self.task1.id)
+
 
 class AuthAndJWTTestCase(TestCase):
     """

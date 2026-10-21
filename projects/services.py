@@ -23,28 +23,44 @@ class ProjectService:
     @staticmethod
     def get_project_statistics(project_id: int):
         """
-        Calculates project task summary metrics using SQL aggregations.
-        Avoids loading all task rows into Python memory.
+        Calculates project task summary metrics using single-pass SQL conditional aggregation.
+        Uses PostgreSQL 'COUNT(id) FILTER (WHERE ...)' to avoid multiple DB roundtrips and in-memory row processing.
         """
+        from tasks.choices import TaskStatus, TaskPriority
+
         project = Project.objects.filter(id=project_id).first()
         if not project:
             return None
 
-        # Aggregate total tasks and breakdown by status in single optimized query
-        tasks_qs = project.tasks.all()
-        total_tasks = tasks_qs.count()
-
-        # Count by status using conditional aggregation (FILTER in SQL)
-        status_counts = tasks_qs.values("status").annotate(count=models.Count("id"))
-        priority_counts = tasks_qs.values("priority").annotate(count=models.Count("id"))
-
-        by_status = {item["status"]: item["count"] for item in status_counts}
-        by_priority = {item["priority"]: item["count"] for item in priority_counts}
+        # Execute single-pass conditional aggregation across all statuses and priorities
+        metrics = project.tasks.aggregate(
+            total_tasks=models.Count("id"),
+            # Status conditional aggregations
+            todo_count=models.Count("id", filter=models.Q(status=TaskStatus.TODO)),
+            in_progress_count=models.Count("id", filter=models.Q(status=TaskStatus.IN_PROGRESS)),
+            blocked_count=models.Count("id", filter=models.Q(status=TaskStatus.BLOCKED)),
+            completed_count=models.Count("id", filter=models.Q(status=TaskStatus.COMPLETED)),
+            # Priority conditional aggregations
+            low_count=models.Count("id", filter=models.Q(priority=TaskPriority.LOW)),
+            medium_count=models.Count("id", filter=models.Q(priority=TaskPriority.MEDIUM)),
+            high_count=models.Count("id", filter=models.Q(priority=TaskPriority.HIGH)),
+            urgent_count=models.Count("id", filter=models.Q(priority=TaskPriority.URGENT)),
+        )
 
         return {
             "project_id": project.id,
             "project_name": project.name,
-            "total_tasks": total_tasks,
-            "by_status": by_status,
-            "by_priority": by_priority,
+            "total_tasks": metrics["total_tasks"],
+            "by_status": {
+                TaskStatus.TODO: metrics["todo_count"],
+                TaskStatus.IN_PROGRESS: metrics["in_progress_count"],
+                TaskStatus.BLOCKED: metrics["blocked_count"],
+                TaskStatus.COMPLETED: metrics["completed_count"],
+            },
+            "by_priority": {
+                TaskPriority.LOW: metrics["low_count"],
+                TaskPriority.MEDIUM: metrics["medium_count"],
+                TaskPriority.HIGH: metrics["high_count"],
+                TaskPriority.URGENT: metrics["urgent_count"],
+            },
         }

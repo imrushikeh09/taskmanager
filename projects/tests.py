@@ -122,3 +122,44 @@ class ProjectViewSetTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Updated Setup")
 
+    def test_list_projects_query_count_is_constant(self):
+        """
+        Verify that GET /api/v1/projects/ executes strictly 2 queries (COUNT and eager-loaded page)
+        regardless of whether there are 1 or 15 projects in the database.
+        Guarantees O(1) query complexity and prevents N+1 regression on owner lookup.
+        """
+        for i in range(14):
+            u = User.objects.create_user(username=f"owner_{i}", password="password123")
+            Project.objects.create(owner=u, name=f"Project {i}")
+
+        self.client.force_authenticate(user=self.user)
+        with self.assertNumQueries(2):
+            response = self.client.get("/api/v1/projects/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 15)
+
+    def test_project_stats_query_count_is_constant(self):
+        """
+        Verify that GET /api/v1/projects/<id>/stats/ executes exactly 2 queries:
+        1 query for Project lookup and 1 single-pass conditional aggregation across 50 tasks.
+        Guarantees O(1) query complexity.
+        """
+        tasks = [
+            Task(
+                project=self.project,
+                creator=self.user,
+                title=f"Bulk Task {i}",
+                status=TaskStatus.TODO if i % 2 == 0 else TaskStatus.COMPLETED,
+                priority=TaskPriority.HIGH if i % 3 == 0 else TaskPriority.MEDIUM,
+            )
+            for i in range(50)
+        ]
+        Task.objects.bulk_create(tasks)
+
+        self.client.force_authenticate(user=self.user)
+        with self.assertNumQueries(2):
+            response = self.client.get(f"/api/v1/projects/{self.project.id}/stats/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            data = response.json()
+            self.assertEqual(data["total_tasks"], 52)  # 2 from setUp + 50 bulk
+
