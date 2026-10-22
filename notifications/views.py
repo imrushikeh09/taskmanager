@@ -39,6 +39,8 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.request.user.is_authenticated:
+            return Notification.objects.none()
         qs = Notification.objects.filter(recipient=self.request.user).select_related("task")
         is_read_param = self.request.query_params.get("is_read")
         if is_read_param is not None:
