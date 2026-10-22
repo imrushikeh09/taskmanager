@@ -2,13 +2,30 @@
 # Task Manager - Production-Grade Multi-Container Docker Compose Stack
 # ==============================================================================
 # Services:
-#   1. postgres:       PostgreSQL 16 relational database with persistent volume
-#   2. redis:          Redis 7 in-memory cache & Celery message broker
-#   3. web:            Django REST API served via Gunicorn WSGI
-#   4. celery_worker:  Asynchronous notification task worker
+#   1. nginx:          Reverse proxy, load balancer, and zero-copy static asset server
+#   2. web:            Django REST API served via Gunicorn WSGI (Scalable cluster)
+#   3. celery_worker:  Asynchronous notification task worker
+#   4. postgres:       PostgreSQL 16 relational database with persistent volume
+#   5. redis:          Redis 7 in-memory cache & Celery message broker
 # ==============================================================================
 
 services:
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: taskmanager_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_data:/app/staticfiles:ro
+      - media_data:/app/media:ro
+    depends_on:
+      web:
+        condition: service_started
+    networks:
+      - taskmanager_network
+
   postgres:
     image: postgres:16-alpine
     container_name: taskmanager_postgres
@@ -56,18 +73,18 @@ services:
       context: .
       dockerfile: Dockerfile
     image: taskmanager:latest
-    container_name: taskmanager_web
     restart: unless-stopped
     env_file:
       - .env.docker
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
+      - static_data:/app/staticfiles
       - media_data:/app/media
     networks:
       - taskmanager_network
@@ -99,6 +116,8 @@ volumes:
     name: taskmanager_postgres_data
   redis_data:
     name: taskmanager_redis_data
+  static_data:
+    name: taskmanager_static_data
   media_data:
     name: taskmanager_media_data
 
