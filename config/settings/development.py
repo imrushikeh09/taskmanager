@@ -29,15 +29,17 @@ MAILERS = {
 
 
 # Redis Cache-Aside with Automatic Local-Memory Fallback
-def _is_redis_available(host="127.0.0.1", port=6379, timeout=0.2):
+REDIS_HOST = os.getenv("REDIS_HOST", "127.0.0.1")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_URL = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/1")
+
+
+def _is_redis_available(host=REDIS_HOST, port=REDIS_PORT, timeout=0.2):
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
     except (socket.timeout, ConnectionRefusedError, OSError):
         return False
-
-
-REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")
 
 if _is_redis_available():
     CACHES = {
