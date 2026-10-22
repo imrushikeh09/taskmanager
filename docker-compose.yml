@@ -67,6 +67,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - media_data:/app/media
     networks:
       - taskmanager_network
 
@@ -80,6 +82,8 @@ services:
       AUTO_MIGRATE: "false"
       COLLECT_STATIC: "false"
     command: ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=2"]
+    volumes:
+      - media_data:/app/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,6 +99,8 @@ volumes:
     name: taskmanager_postgres_data
   redis_data:
     name: taskmanager_redis_data
+  media_data:
+    name: taskmanager_media_data
 
 networks:
   taskmanager_network:

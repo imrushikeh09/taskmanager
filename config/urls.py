@@ -14,6 +14,8 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
 from drf_spectacular.views import (
@@ -24,6 +26,7 @@ from drf_spectacular.views import (
 from common.auth_views import (
     DecoratedTokenObtainPairView,
     DecoratedTokenRefreshView,
+    CurrentUserView,
 )
 
 urlpatterns = [
@@ -34,14 +37,21 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 
-    # Authentication Endpoints (SimpleJWT)
+    # Authentication Endpoints (SimpleJWT & Profile Hydration)
     path('api/v1/auth/token/', DecoratedTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/v1/auth/token/refresh/', DecoratedTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/v1/auth/me/', CurrentUserView.as_view(), name='current_user'),
 
     # v1 Domain Endpoints
     path('api/v1/projects/', include('projects.urls')),
     path('api/v1/tasks/', include('tasks.urls')),
+    path('api/v1/attachments/', include('attachments.urls')),
     path('api/v1/notifications/', include('notifications.urls')),
 ]
+
+# Media file serving in development and Docker local environments
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
 
 

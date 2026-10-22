@@ -57,3 +57,6 @@ else:
             "TIMEOUT": 300,
         }
     }
+
+# Allow all origins in local development for seamless frontend integration
+CORS_ALLOW_ALL_ORIGINS = True

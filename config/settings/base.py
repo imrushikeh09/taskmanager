@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Third-Party Apps
+    'corsheaders',
     'rest_framework',
     'drf_spectacular',
     'django_filters',
@@ -41,6 +42,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     # Observability & Tracing Middleware (Cross-Cutting)
     'common.middleware.CorrelationIdMiddleware',
     'common.middleware.RequestLoggingMiddleware',
@@ -85,6 +87,9 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 # Django REST Framework Configuration
 REST_FRAMEWORK = {
@@ -190,3 +195,14 @@ LOGGING = {
         },
     },
 }
+
+# Cross-Origin Resource Sharing (CORS) Configuration
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = True

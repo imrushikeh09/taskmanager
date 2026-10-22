@@ -24,7 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build Python wheels for fast, clean installation in the final stage
 COPY requirements.txt .
-RUN pip wheel --wheel-dir /build/wheels -r requirements.txt
+RUN pip wheel --wheel-dir /build/wheels -r requirements.txt \
+    --extra-index-url https://mirrors.aliyun.com/pypi/simple/ \
+    --default-timeout 60
 
 
 # ------------------------------------------------------------------------------
