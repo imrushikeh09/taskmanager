@@ -5,6 +5,13 @@ mirroring a real-world Jira / Azure DevOps enterprise production environment.
 """
 
 import os
+import sys
+from pathlib import Path
+
+# Ensure project root is in sys.path
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR))
+
 import django
 from datetime import date, timedelta
 from django.utils import timezone

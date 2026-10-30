@@ -1,0 +1,80 @@
+# ==============================================================================
+# Task Manager Enterprise GitLab CI/CD Pipeline Configuration (Day 19)
+# Stages: test -> quality -> build -> package
+# ==============================================================================
+
+stages:
+  - test
+  - quality
+  - build
+
+variables:
+  POSTGRES_DB: taskmanager_test_db
+  POSTGRES_USER: taskmanager_user
+  POSTGRES_PASSWORD: test_password
+  POSTGRES_HOST_AUTH_METHOD: trust
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+
+default:
+  interruptible: true
+
+# ------------------------------------------------------------------------------
+# 1. Backend Automated Tests & Security Audit
+# ------------------------------------------------------------------------------
+backend:tests:
+  stage: test
+  image: python:3.12-slim-bookworm
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+    - name: redis:7-alpine
+      alias: redis
+  variables:
+    DB_HOST: postgres
+    DB_PORT: 5432
+    DB_NAME: taskmanager_test_db
+    DB_USER: taskmanager_user
+    DB_PASSWORD: test_password
+    REDIS_URL: redis://redis:6379/1
+    CELERY_BROKER_URL: redis://redis:6379/0
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev postgresql-client
+    - python -m pip install --upgrade pip
+    - pip install -r requirements.txt
+  script:
+    - python manage.py check --settings=config.settings.testing
+    - python manage.py test --settings=config.settings.testing -v 2
+
+# ------------------------------------------------------------------------------
+# 2. Frontend Production Build & Bundle Verification
+# ------------------------------------------------------------------------------
+frontend:build:
+  stage: quality
+  image: node:22-alpine
+  script:
+    - cd frontend
+    - npm ci
+    - npm run build
+  artifacts:
+    name: "frontend-dist"
+    expire_in: 7 days
+    paths:
+      - frontend/dist/
+
+# ------------------------------------------------------------------------------
+# 3. Docker Image Build & Security Verification (Docker-in-Docker)
+# ------------------------------------------------------------------------------
+docker:build:
+  stage: build
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  before_script:
+    - docker info
+  script:
+    - docker build -t taskmanager:${CI_COMMIT_SHORT_SHA} .
+    - USER_CHECK=$(docker run --rm taskmanager:${CI_COMMIT_SHORT_SHA} whoami)
+    - echo "Container user is $USER_CHECK"
+    - test "$USER_CHECK" = "appuser"
+    - docker run --rm -e DJANGO_SECRET_KEY="gitlab-ci-key" taskmanager:${CI_COMMIT_SHORT_SHA} python manage.py check
